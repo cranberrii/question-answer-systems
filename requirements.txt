@@ -1,0 +1,7 @@
+torch
+transformers
+pytorch-lightning
+sentencepiece
+farm-haystack[ocr, faiss]
+# pdftotext
+dash

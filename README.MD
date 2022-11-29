@@ -5,6 +5,9 @@ TODO: readme
 install ubuntu tools for pdftotext:
 https://stackoverflow.com/questions/45912641/unable-to-install-pdftotext-on-python-3-6-missing-poppler
 
+install faiss-cpu from pip, not from pytorch:
+https://github.com/criteo/autofaiss/issues/112
+
 
 **References:**
 

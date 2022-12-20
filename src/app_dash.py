@@ -134,7 +134,7 @@ t5_generator = Seq2SeqGenerator(
     top_k=1,
     max_length=100,
     min_length=2,
-    num_beams=2,
+    num_beams=3,
 )
 pipe_GQA = GenerativeQAPipeline(generator=t5_generator, retriever=dpr_retriever)
 
@@ -144,9 +144,10 @@ logger.debug("Generator model loaded!")
 
 
 #################### DASH APP & LAYOUT ####################
+# https://github.com/plotly/dash-sample-apps/blob/main/apps/dash-chatbot/app.py
 def textbox(text, box="other"):
     style = {
-        "max-width": "55%",
+        "max-width": "85%",
         "width": "max-content",
         "padding": "10px 15px",
         "border-radius": "25px",
@@ -175,9 +176,10 @@ def textbox(text, box="other"):
 controls = dbc.InputGroup(
     style={"width": "80%", "max-width": "800px", "margin": "auto"},
     children=[
-        dbc.Input(id="user-input", placeholder="Ask a question about Bitcoin...", type="text"),
-        dbc.Button("Submit", id="submit", n_clicks=0),
+        dbc.Input(id="user-input", placeholder="Ask a question about Bitcoin...", type="text", className="me-1"),
+        dbc.Button("Submit", id="submit", n_clicks=0, outline=True, color="primary", className="me-1"),
     ],
+    size="lg"
 )
 
 answer = html.Div(
@@ -191,29 +193,20 @@ answer = html.Div(
     id="display-conversation",
 )
 
-app = dash.Dash(__name__)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 server = app.server
 
 app.layout = dbc.Container(
     fluid=True,
     children=[
-        html.H1("Bitcoin Q&A System"),
+        html.H2("Bitcoin Q&A System"),
         html.Hr(),
         dcc.Store(id="store-conversation", data=""),
         controls,
+        html.Br(),
         answer,
     ],
 )
-
-# app.layout = html.Div([
-#     html.H5("Search a question about Bitcoin"),
-#     html.Div([
-#         "Input: ",
-#         dcc.Input(id='qns-input', value='When was Bitcoin created?', type='text')
-#     ]),
-#     html.Br(),
-#     html.Div(id='ans-output'),
-# ])
 
 #################### DASH CALLBACKS ####################
 
@@ -222,10 +215,16 @@ app.layout = dbc.Container(
     [Input("store-conversation", "data")]
 )
 def update_display(chat_history):
-    print(chat_history)
+    """
+    returns a list of QNS & ANS pairs
+    """
+    print(f"history chat: {chat_history}")
+    # return [
+    #     textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other")
+    #     for i, x in enumerate(chat_history.split(tokenizer.eos_token)[:-1])
+    # ]
     return [
-        textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other")
-        for i, x in enumerate(chat_history.split(tokenizer.eos_token)[:-1])
+        textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other") for i, x in enumerate([chat_history])
     ]
 
 @app.callback(
@@ -254,20 +253,8 @@ def run_chatbot(n_clicks, n_submit, user_input, chat_history):
     result = pipe_GQA.run(query=user_input,
                           params={"Generator": {"top_k": 1}, "Retriever": {"top_k": 5}})
     print(result)
-    chat_history = result['answers'][0].answer
+    chat_history = "Answer: " + result['answers'][0].answer + ". Article: " + result['answers'][0].meta.get('content')[0]
     return chat_history, ""
-
-
-# @app.callback(
-#     Output(component_id='ans-output', component_property='children'),
-#     Input(component_id='qns-input', component_property='value')
-# )
-# def qna_pipeline(input_value):
-#     pipe_GQA = GenerativeQAPipeline(generator=t5_generator, retriever=dpr_retriever)
-    
-#     result = pipe_GQA.run(query=input_value, 
-#                           params={"Generator": {"top_k": 1}, "Retriever": {"top_k": 5}})
-#     return print_answers(result, details="all")
 
 
 if __name__ == '__main__':

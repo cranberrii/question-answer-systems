@@ -8,3 +8,4 @@ faiss-cpu==1.7.2
 farm-haystack[ocr,faiss]==1.11
 # pdftotext
 dash
+dash-bootstrap-components

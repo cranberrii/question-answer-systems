@@ -1,6 +1,5 @@
 import dash
-import dash_html_components as html
-import dash_core_components as dcc
+from dash import dcc, html
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output, State
 # from dash import Dash, dcc, html, Input, Output
@@ -18,11 +17,15 @@ from haystack.pipelines import GenerativeQAPipeline
 from haystack.schema import Document
 
 import torch
-from transformers import PreTrainedTokenizer, BatchEncoding
+from transformers import PreTrainedTokenizer, BatchEncoding, AutoTokenizer
 
 
-logging.basicConfig(format="%(levelname)s - %(name)s -  %(message)s") #, level=logging.WARNING)
+# FORMAT = '%(asctime)s %(levelname)s - %(name)s -  %(message)s'
+# logging.basicConfig(format=FORMAT, level=logging.DEBUG)
 logging.getLogger("haystack").setLevel(logging.INFO)
+
+FORMAT = '%(asctime)s %(levelname)s - %(name)s -  %(message)s'
+logging.basicConfig(format=FORMAT, level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +34,7 @@ logger = logging.getLogger(__name__)
 # DATA_PATH = '../data/bitcoin_articles.csv'
 
 # df = pd.read_csv(DATA_PATH)
-# logger.info(f"DF shape: {df.shape}")
+# logging.info(f"DF shape: {df.shape}")
 
 # ids = list(df["article_id"].values)
 # texts = list(df["summary"].values)
@@ -52,7 +55,7 @@ logger = logging.getLogger(__name__)
 #             }
 #         )
 #     )
-# logger.info(len(all_docs))
+# logging.info(len(all_docs))
 
 # preprocessor = PreProcessor(
 #     clean_empty_lines=True,
@@ -64,7 +67,7 @@ logger = logging.getLogger(__name__)
 # )
 
 # all_docs_process = preprocessor.process(all_docs)
-# logger.info(f"n_files_input: {len(all_docs)}\nn_docs_output: {len(all_docs_process)}")
+# logging.info(f"n_files_input: {len(all_docs)}\nn_docs_output: {len(all_docs_process)}")
 
 #################### DOCUMENT STORE ####################
 
@@ -72,7 +75,7 @@ logger = logging.getLogger(__name__)
 # doc_store_dpr = FAISSDocumentStore(sql_url = "sqlite:///faiss_document_store_dpr.db", 
 #                                     faiss_index_factory_str="Flat", similarity="dot_product", return_embedding=True)
 # doc_store_dpr.write_documents(all_docs_process)
-# logger.info(doc_store_dpr.get_document_count())
+# logging.info(doc_store_dpr.get_document_count())
 
 #################### RETRIEVER ####################
 
@@ -89,9 +92,12 @@ logger = logging.getLogger(__name__)
 
 # SAVE doc store
 # doc_store_dpr.save("faiss_index_DPR.faiss")
-# logger.info("Doc store DPR embeddings updated and saved!")
+# logging.info("Doc store DPR embeddings updated and saved!")
 
 # LOAD doc store & retriever
+
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 document_store = FAISSDocumentStore.load("faiss_index_DPR.faiss", "faiss_index_DPR.json")
 
 dpr_retriever = DensePassageRetriever(
@@ -101,7 +107,7 @@ dpr_retriever = DensePassageRetriever(
     use_gpu=False,
     embed_title=True,
 )
-logger.info("Document store and DPR loaded!")
+logger.debug("Document store and DPR loaded!")
 
 #################### GENERATOR ####################
 
@@ -119,8 +125,10 @@ class _T5Converter:
         max_source_length = 512
         return tokenizer([query_and_docs], truncation=True, padding=True, max_length=max_source_length, return_tensors="pt")
 
+MODEL_NAME = "t5-small"
+
 t5_generator = Seq2SeqGenerator(
-    model_name_or_path="t5-small",
+    model_name_or_path=MODEL_NAME,
     input_converter=_T5Converter(),
     use_gpu=False,
     top_k=1,
@@ -128,7 +136,11 @@ t5_generator = Seq2SeqGenerator(
     min_length=2,
     num_beams=2,
 )
-logger.info("Generator model loaded!")
+pipe_GQA = GenerativeQAPipeline(generator=t5_generator, retriever=dpr_retriever)
+
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+
+logger.debug("Generator model loaded!")
 
 
 #################### DASH APP & LAYOUT ####################
@@ -164,7 +176,7 @@ controls = dbc.InputGroup(
     style={"width": "80%", "max-width": "800px", "margin": "auto"},
     children=[
         dbc.Input(id="user-input", placeholder="Ask a question about Bitcoin...", type="text"),
-        dbc.InputGroupAddon(dbc.Button("Submit", id="submit"), addon_type="append",),
+        dbc.Button("Submit", id="submit", n_clicks=0),
     ],
 )
 
@@ -179,7 +191,7 @@ answer = html.Div(
     id="display-conversation",
 )
 
-app = Dash(__name__)
+app = dash.Dash(__name__)
 server = app.server
 
 app.layout = dbc.Container(
@@ -210,11 +222,11 @@ app.layout = dbc.Container(
     [Input("store-conversation", "data")]
 )
 def update_display(chat_history):
+    print(chat_history)
     return [
         textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other")
         for i, x in enumerate(chat_history.split(tokenizer.eos_token)[:-1])
     ]
-
 
 @app.callback(
     [Output("store-conversation", "data"), Output("user-input", "value")],
@@ -228,23 +240,22 @@ def run_chatbot(n_clicks, n_submit, user_input, chat_history):
     if user_input is None or user_input == "":
         return chat_history, ""
 
-    # # temporary
-    # return chat_history + user_input + "<|endoftext|>" + user_input + "<|endoftext|>", ""
-
     # encode the new user input, add the eos_token and return a tensor in Pytorch
-    bot_input_ids = tokenizer.encode(
-        chat_history + user_input + tokenizer.eos_token, return_tensors="pt"
-    ).to(device)
+    # bot_input_ids = tokenizer.encode(
+    #     chat_history + user_input + tokenizer.eos_token, return_tensors="pt"
+    # ).to(device)
 
     # generated a response while limiting the total chat history to 1000 tokens,
-    chat_history_ids = model.generate(
-        bot_input_ids, max_length=1024, pad_token_id=tokenizer.eos_token_id
-    )
-    chat_history = tokenizer.decode(chat_history_ids[0])
+    # chat_history_ids = model.generate(
+    #     bot_input_ids, max_length=1024, pad_token_id=tokenizer.eos_token_id
+    # )
+    # chat_history = tokenizer.decode(chat_history_ids[0])
 
+    result = pipe_GQA.run(query=user_input,
+                          params={"Generator": {"top_k": 1}, "Retriever": {"top_k": 5}})
+    print(result)
+    chat_history = result['answers'][0].answer
     return chat_history, ""
-
-
 
 
 # @app.callback(

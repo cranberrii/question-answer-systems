@@ -130,7 +130,7 @@ MODEL_NAME = "t5-small"
 t5_generator = Seq2SeqGenerator(
     model_name_or_path=MODEL_NAME,
     input_converter=_T5Converter(),
-    use_gpu=False,
+    use_gpu=True,
     top_k=1,
     max_length=100,
     min_length=2,
@@ -178,6 +178,7 @@ controls = dbc.InputGroup(
     children=[
         dbc.Input(id="user-input", placeholder="Ask a question about Bitcoin...", type="text", className="me-1"),
         dbc.Button("Submit", id="submit", n_clicks=0, outline=True, color="primary", className="me-1"),
+        dbc.Spinner(html.Div(id="loading-output"), color="primary",),
     ],
     size="lg"
 )
@@ -219,26 +220,34 @@ def update_display(chat_history):
     returns a list of QNS & ANS pairs
     """
     print(f"history chat: {chat_history}")
-    # return [
-    #     textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other")
-    #     for i, x in enumerate(chat_history.split(tokenizer.eos_token)[:-1])
-    # ]
-    return [
-        textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other") for i, x in enumerate([chat_history])
-    ]
+    try:
+        ans_article = chat_history.split(' Article: ')
+        ans = ans_article[0]
+        article = 'Article: ' + ans_article[1]
+        # return [
+        #     textbox(x, box="self") if i % 2 == 0 else textbox(x, box="other")
+        #     for i, x in enumerate(chat_history.split(tokenizer.eos_token)[:-1])
+        # ]
+        return [
+            textbox(ans, box="self"),
+            html.Br(),
+            textbox(article, box="self")
+        ]
+    except Exception as e:
+        logger.info(e)
+        return
 
 @app.callback(
-    [Output("store-conversation", "data"), Output("user-input", "value")],
+    [Output("store-conversation", "data"), Output("user-input", "value"), Output("loading-output", "children")],
     [Input("submit", "n_clicks"), Input("user-input", "n_submit")],
     [State("user-input", "value"), State("store-conversation", "data")],
 )
-def run_chatbot(n_clicks, n_submit, user_input, chat_history):
+def run_qna(n_clicks, n_submit, user_input, chat_history):
     if n_clicks == 0:
-        return "", ""
+        return "", "", ""
 
     if user_input is None or user_input == "":
-        return chat_history, ""
-
+        return chat_history, "", ""
     # encode the new user input, add the eos_token and return a tensor in Pytorch
     # bot_input_ids = tokenizer.encode(
     #     chat_history + user_input + tokenizer.eos_token, return_tensors="pt"
@@ -249,12 +258,11 @@ def run_chatbot(n_clicks, n_submit, user_input, chat_history):
     #     bot_input_ids, max_length=1024, pad_token_id=tokenizer.eos_token_id
     # )
     # chat_history = tokenizer.decode(chat_history_ids[0])
-
     result = pipe_GQA.run(query=user_input,
                           params={"Generator": {"top_k": 1}, "Retriever": {"top_k": 5}})
     print(result)
-    chat_history = "Answer: " + result['answers'][0].answer + ". Article: " + result['answers'][0].meta.get('content')[0]
-    return chat_history, ""
+    chat_history = "Answer: " + result['answers'][0].answer + " Article: " + result['answers'][0].meta.get('content')[0]
+    return chat_history, user_input, ""
 
 
 if __name__ == '__main__':

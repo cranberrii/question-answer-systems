@@ -1,7 +1,10 @@
 jupyter==1.0.0
 ipywidgets==8.0.2
+# setuptools_scm
+# seqeval
 torch==1.12.1
 transformers==4.21.2
+datasets
 pytorch-lightning
 sentencepiece
 faiss-cpu==1.7.2
